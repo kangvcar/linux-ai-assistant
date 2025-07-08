@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Linux终端AI助手 - 独立版本（无外部依赖）
+Linux终端AI伴侣 - 独立版本（无外部依赖）
 """
 
 import os
@@ -15,7 +15,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
 
-class LinuxAIAssistant:
+class LinuxAICompanion:
     def __init__(self, config_path: str = "~/.ai_config.json"):
         self.config_path = Path(config_path).expanduser()
         self.config = self.load_config()
@@ -560,10 +560,14 @@ class LinuxAIAssistant:
             current_time - self.last_analyzed_time < 5):
             return
         
+        # 跳过 SIGINT (Ctrl+C) 退出码 130
+        if cmd_info['exit_code'] == 130:
+            return
+            
         # 过滤掉一些明显不需要分析的命令
         if (cmd_info['command'].startswith(('return', 'local', 'set', 'export')) or
             'python3' in cmd_info['command'] and '--monitor' in cmd_info['command'] or
-            '_ai_assistant' in cmd_info['command']):
+            '_ai_companion' in cmd_info['command']):
             return
             
         try:
@@ -577,7 +581,7 @@ class LinuxAIAssistant:
                 self.last_analyzed_command = command_key
                 self.last_analyzed_time = current_time
         except Exception as e:
-            print(f"\n💡 AI助手暂时无法分析此错误: {e}")
+            print(f"\n💡 AI伴侣暂时无法分析此错误: {e}")
             sys.stdout.flush()
     
     def get_ai_suggestion(self, cmd_info: Dict) -> str:
@@ -645,7 +649,7 @@ class LinuxAIAssistant:
             except Exception:
                 pass
 
-        prompt = f"""你是一个智能的Linux终端AI助手，专门帮助用户解决Linux命令问题。请用中文回答，并保持简洁实用。
+        prompt = f"""你是一个智能的Linux终端AI伴侣，专门帮助用户解决Linux命令问题。请用中文回答，并保持简洁实用。
 
 {context_info}{history_context}
 
@@ -669,7 +673,7 @@ class LinuxAIAssistant:
     
     def display_suggestion(self, suggestion: str, command: str):
         """优化的建议显示方式"""
-        print(f"🤖 \033[1;36mAI助手建议\033[0m (命令: \033[1;33m{command}\033[0m)")
+        print(f"🤖 \033[1;36mAI伴侣建议\033[0m (命令: \033[1;33m{command}\033[0m)")
         
         
         # 处理建议内容，使其更易读
@@ -707,7 +711,7 @@ class LinuxAIAssistant:
         except Exception:
             pass
 
-        prompt = f"""你是一个智能的Linux终端AI助手，用中文回答问题。
+        prompt = f"""你是一个智能的Linux终端AI伴侣，用中文回答问题。
 
 {context_summary}{pattern_summary}
 
@@ -830,12 +834,12 @@ class LinuxAIAssistant:
     def install_shell_hook(self):
         """安装Shell钩子函数 - 统一完整版（包含所有高级功能）"""
         # 创建安装目录
-        install_dir = Path.home() / '.ai_assistant'
+        install_dir = Path.home() / '.ai_companion'
         install_dir.mkdir(exist_ok=True)
         
         # 复制主程序文件到安装目录
         current_file = Path(__file__).resolve()
-        target_file = install_dir / 'ai_assistant.py'
+        target_file = install_dir / 'ai_companion.py'
         
         if current_file != target_file:
             shutil.copy2(current_file, target_file)
@@ -845,7 +849,7 @@ class LinuxAIAssistant:
         capture_script = install_dir / 'capture_stderr.sh'
         with open(capture_script, 'w') as f:
             f.write(f'''#!/bin/bash
-# AI Assistant - 智能错误捕获脚本 (完整版)
+# AI Companion - 智能错误捕获脚本 (完整版)
 
 # 全局变量
 AI_STDERR_FILE="/tmp/ai_stderr_$$"
@@ -869,7 +873,7 @@ ai_exec() {{
 
 # 智能错误分析函数
 ai_analyze_error() {{
-    if [ $AI_LAST_EXIT_CODE -ne 0 ] && [ -n "$AI_LAST_COMMAND" ]; then
+    if [ $AI_LAST_EXIT_CODE -ne 0 ] && [ $AI_LAST_EXIT_CODE -ne 130 ] && [ -n "$AI_LAST_COMMAND" ]; then
         local stderr_content=""
         if [ -f "$AI_STDERR_FILE" ] && [ -s "$AI_STDERR_FILE" ]; then
             stderr_content=$(cat "$AI_STDERR_FILE" 2>/dev/null || echo "")
@@ -907,14 +911,14 @@ export -f ai_exec ai_analyze_error ai_cleanup
         
         # 创建统一完整版shell钩子，包含所有高级功能
         shell_hook = f'''
-# Linux AI Assistant Hook - 统一完整版
+# Linux AI Companion Hook - 统一完整版
 # 包含所有高级功能：智能错误分析、实时stderr捕获、命令包装、上下文感知
 
 # 加载错误捕获脚本
 source "{capture_script}"
 
 # 创建临时目录存储错误输出（备用方案）
-_ai_temp_dir="/tmp/ai_assistant_$$"
+_ai_temp_dir="/tmp/ai_companion_$$"
 mkdir -p "$_ai_temp_dir" 2>/dev/null || true
 
 # 为常用命令创建智能包装器
@@ -938,11 +942,11 @@ _ai_setup_command_wrappers() {{
 }}
 
 # 混合模式的PROMPT_COMMAND钩子 - 结合实时捕获和历史分析
-_ai_assistant_prompt_command() {{
+_ai_companion_prompt_command() {{
     local current_exit_code=$?
     
-    # 如果上一个命令失败了，就进行智能分析
-    if [ $current_exit_code -ne 0 ]; then
+    # 如果上一个命令失败了，就进行智能分析（跳过Ctrl+C触发的退出码130）
+    if [ $current_exit_code -ne 0 ] && [ $current_exit_code -ne 130 ]; then
         local last_command=$(history 1 | sed 's/^[ ]*[0-9]*[ ]*//')
         
         # 过滤内部命令和特殊情况
@@ -1026,9 +1030,9 @@ ai_context() {{
 
 # ai_debug命令 - 调试和状态信息
 ai_debug() {{
-    echo "🔧 AI助手调试信息:"
+    echo "🔧 AI伴侣调试信息:"
     echo "  PROMPT_COMMAND: $PROMPT_COMMAND"
-    echo "  AI助手路径: {target_file}"
+    echo "  AI伴侣路径: {target_file}"
     echo "  错误捕获文件: $AI_STDERR_FILE"
     echo "  临时目录: $_ai_temp_dir"
     echo "  命令包装器状态: $(alias ls 2>/dev/null | grep -q ai_exec && echo '已启用' || echo '未启用')"
@@ -1054,16 +1058,16 @@ ai_config() {{
 }}
 
 # 只在没有安装时才添加钩子
-if [[ "${{BASH_COMMAND_HOOKS:-}}" != *"ai_assistant"* ]]; then
+if [[ "${{BASH_COMMAND_HOOKS:-}}" != *"ai_companion"* ]]; then
     # 保持原有的PROMPT_COMMAND，如果存在的话
     if [ -n "$PROMPT_COMMAND" ]; then
-        export PROMPT_COMMAND="$PROMPT_COMMAND; _ai_assistant_prompt_command"
+        export PROMPT_COMMAND="$PROMPT_COMMAND; _ai_companion_prompt_command"
     else
-        export PROMPT_COMMAND="_ai_assistant_prompt_command"
+        export PROMPT_COMMAND="_ai_companion_prompt_command"
     fi
     
-    export BASH_COMMAND_HOOKS="${{BASH_COMMAND_HOOKS}} ai_assistant"
-    echo "🤖 Linux AI助手已启动 - 统一完整版"
+    export BASH_COMMAND_HOOKS="${{BASH_COMMAND_HOOKS}} ai_companion"
+    echo "🤖 Linux AI伴侣已启动 - 统一完整版"
     echo "💡 包含功能:"
     echo "   ✅ 智能错误分析 - 自动捕获stderr并提供解决方案"
     echo "   ✅ 实时stderr捕获 - 精确获取命令错误输出"
@@ -1078,7 +1082,7 @@ if [[ "${{BASH_COMMAND_HOOKS:-}}" != *"ai_assistant"* ]]; then
     echo "   ai_run <命令>     - 手动执行并分析"
     echo "   ai_config        - 查看配置"
 fi
-# Linux AI Assistant Hook - 结束
+# Linux AI Companion Hook - 结束
 '''
         
         bashrc_path = Path.home() / '.bashrc'
@@ -1086,7 +1090,7 @@ fi
         # 检查是否已安装
         if bashrc_path.exists():
             content = bashrc_path.read_text()
-            if 'Linux AI Assistant Hook - 开始' not in content and 'Linux AI Assistant Hook - 统一完整版' not in content:
+            if 'Linux AI Companion Hook - 开始' not in content and 'Linux AI Companion Hook - 统一完整版' not in content:
                 with open(bashrc_path, 'a') as f:
                     f.write('\n' + shell_hook)
                 print("✅ Shell钩子已安装到 ~/.bashrc")
@@ -1117,7 +1121,7 @@ def main():
     """主函数"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='Linux终端AI助手 - 统一完整版')
+    parser = argparse.ArgumentParser(description='Linux终端AI伴侣 - 统一完整版')
     parser.add_argument('--install', action='store_true', help='安装Shell钩子（包含所有高级功能）')
     parser.add_argument('--config', action='store_true', help='显示当前配置')
     parser.add_argument('--context', action='store_true', help='显示详细上下文信息')
@@ -1130,19 +1134,19 @@ def main():
     
     args = parser.parse_args()
     
-    assistant = LinuxAIAssistant()
+    companion = LinuxAICompanion()
     
     if args.install:
-        assistant.install_shell_hook()
+        companion.install_shell_hook()
     elif args.config:
-        assistant.show_config()
+        companion.show_config()
     elif args.context:
-        assistant.show_context_info()
+        companion.show_context_info()
     elif args.test:
-        assistant.test_api_connection()
+        companion.test_api_connection()
     elif args.set_api:
         api_type, base_url, model, api_key = args.set_api
-        assistant.configure_api(api_type, base_url, model, api_key)
+        companion.configure_api(api_type, base_url, model, api_key)
     elif args.monitor:
         command = args.monitor[0]
         exit_code = int(args.monitor[1])
@@ -1158,15 +1162,15 @@ def main():
                 # 如果解码失败，直接使用原始内容
                 stderr_content = args.monitor[2]
         
-        assistant.monitor_command(command, exit_code, '', stderr_content)
+        companion.monitor_command(command, exit_code, '', stderr_content)
     elif args.ask:
         question = ' '.join(args.ask)
-        response = assistant.ask_question(question)
+        response = companion.ask_question(question)
 
-        print(f"🤖 \033[1;36mAI助手回答\033[0m")
+        print(f"🤖 \033[1;36mAI伴侣回答\033[0m")
         print(response)
     else:
-        print("Linux终端AI助手 - 统一完整版（无外部依赖）")
+        print("Linux终端AI伴侣 - 统一完整版（无外部依赖）")
         print("使用 --install 安装Shell钩子（包含所有高级功能）")
         print("使用 --config 查看当前配置")
         print("使用 --context 查看详细上下文")
