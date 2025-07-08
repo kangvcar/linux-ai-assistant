@@ -52,9 +52,16 @@ class LinuxAICompanion:
     
     def save_config(self):
         """保存配置文件"""
+        # 确保目录存在
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump(self.config, f, indent=2, ensure_ascii=False)
-    
+
+    def get_active_api_config(self) -> Dict:
+        """获取当前激活的API配置"""
+        active_service_name = self.config.get('active_ai_service', 'default')
+        return self.config.get('ai_services', {}).get(active_service_name, {})
+
     def get_system_info_native(self) -> Dict:
         """使用原生方法获取系统信息"""
         try:
@@ -189,24 +196,28 @@ class LinuxAICompanion:
     
     def call_custom_api(self, prompt: str) -> str:
         """调用自定义API（使用urllib）"""
+        api_config = self.get_active_api_config()
+        if not api_config:
+            return "API配置不存在，请使用 'ai_set_api' 命令进行配置。"
+            
         try:
             headers = {
                 'Content-Type': 'application/json',
-                'Authorization': f'Bearer {self.config["ai_service"]["api_key"]}'
+                'Authorization': f'Bearer {api_config.get("api_key")}'
             }
             
             data = {
-                "model": self.config['ai_service']['model'],
+                "model": api_config.get('model'),
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 500,
                 "temperature": 0.7
             }
             
             response = self.http_request(
-                self.config['ai_service']['base_url'],
+                api_config.get('base_url'),
                 data=data,
                 headers=headers,
-                timeout=self.config['ai_service']['timeout']
+                timeout=api_config.get('timeout', 30)
             )
             
             if response['status_code'] == 200:
@@ -219,17 +230,21 @@ class LinuxAICompanion:
     
     def call_ollama(self, prompt: str) -> str:
         """调用Ollama API（使用urllib）"""
+        api_config = self.get_active_api_config()
+        if not api_config:
+            return "API配置不存在，请使用 'ai_set_api' 命令进行配置。"
+
         try:
             data = {
-                "model": self.config['ai_service']['model'],
+                "model": api_config.get('model'),
                 "prompt": prompt,
                 "stream": False
             }
             
             response = self.http_request(
-                f"{self.config['ai_service']['base_url']}/api/generate",
+                f"{api_config.get('base_url')}/api/generate",
                 data=data,
-                timeout=self.config['ai_service']['timeout']
+                timeout=api_config.get('timeout', 30)
             )
             
             if response['status_code'] == 200:
@@ -588,7 +603,11 @@ class LinuxAICompanion:
         prompt = self.build_prompt(cmd_info, context)
         
         # 调用AI服务
-        if self.config['ai_service']['type'] == 'ollama':
+        api_config = self.get_active_api_config()
+        if not api_config:
+            return "API服务未配置"
+            
+        if api_config.get('type') == 'ollama':
             return self.call_ollama(prompt)
         else:
             return self.call_custom_api(prompt)
@@ -645,8 +664,11 @@ class LinuxAICompanion:
             except Exception:
                 pass
 
-        prompt = f"""你是一个智能的Linux终端AI伴侣，专门帮助用户解决Linux命令问题。请用中文回答，并保持简洁实用。
+        api_config = self.get_active_api_config()
+        model_name = api_config.get('model', '未知')
 
+        prompt = f"""你是一个智能的Linux终端AI伴侣，专门帮助用户解决Linux命令问题。请用中文回答，并保持简洁实用。
+当前模型: {model_name}
 {context_info}{history_context}
 
 刚才执行的命令失败了：
@@ -708,7 +730,7 @@ class LinuxAICompanion:
             pass
 
         prompt = f"""你是一个智能的Linux终端AI伴侣，用中文回答问题。
-
+当前模型: {model_name}
 {context_summary}{pattern_summary}
 
 最近10条命令: {' → '.join(recent_commands[-10:]) if recent_commands else '无'}
@@ -717,7 +739,11 @@ class LinuxAICompanion:
 
 请根据当前环境、工作上下文和最近的操作模式，提供针对性的Linux命令和建议。如果问题与当前环境或最近的操作相关，请特别说明。保持回答简洁明了。"""
         
-        if self.config['ai_service']['type'] == 'ollama':
+        api_config = self.get_active_api_config()
+        if not api_config:
+            return "API服务未配置"
+
+        if api_config.get('type') == 'ollama':
             return self.call_ollama(prompt)
         else:
             return self.call_custom_api(prompt)
@@ -745,6 +771,37 @@ class LinuxAICompanion:
         
         return " | ".join(summary_parts)
     
+    def set_api_config(self, name: str, api_type: str, base_url: str, model: str, api_key: str = None, timeout: int = 30):
+        """设置或更新一个API配置"""
+        if 'ai_services' not in self.config:
+            self.config['ai_services'] = {}
+        
+        self.config['ai_services'][name] = {
+            "type": api_type,
+            "base_url": base_url,
+            "model": model,
+            "api_key": api_key,
+            "timeout": timeout
+        }
+        
+        # 如果是第一个配置，则设为激活状态
+        if 'active_ai_service' not in self.config or not self.config['active_ai_service']:
+            self.config['active_ai_service'] = name
+            
+        self.save_config()
+        print(f"✅ API配置 '{name}' 已保存。")
+        if self.config.get('active_ai_service') == name:
+            print(f"✅ 配置 '{name}' 已被激活。")
+
+    def switch_api_config(self, name: str):
+        """切换激活的API配置"""
+        if 'ai_services' in self.config and name in self.config['ai_services']:
+            self.config['active_ai_service'] = name
+            self.save_config()
+            print(f"✅ 已切换到API配置: {name}")
+        else:
+            print(f"❌ 未找到名为 '{name}' 的API配置。可用的配置: {', '.join(self.config.get('ai_services', {}).keys())}")
+
     def configure_api(self, api_type: str = None, base_url: str = None, 
                      model: str = None, api_key: str = None):
         """配置API服务"""
@@ -774,13 +831,19 @@ class LinuxAICompanion:
     
     def show_config(self):
         """显示当前配置"""
-        print("当前配置:")
-        print(f"  服务类型: {self.config['ai_service']['type']}")
-        print(f"  API地址: {self.config['ai_service']['base_url']}")
-        print(f"  模型: {self.config['ai_service']['model']}")
-        print(f"  API Key: {self.config['ai_service']['api_key'][:20]}...")
-        print(f"  超时时间: {self.config['ai_service']['timeout']}秒")
-        print(f"  自动错误分析: {self.config['features']['auto_error_analysis']}")
+        print("所有API配置:")
+        for name, config in self.config.get('ai_services', {}).items():
+            active_marker = " (激活)" if name == self.config.get('active_ai_service') else ""
+            print(f"  配置名称: {name}{active_marker}")
+            print(f"    服务类型: {config.get('type')}")
+            print(f"    API地址: {config.get('base_url')}")
+            print(f"    模型: {config.get('model')}")
+            api_key_display = f"{config.get('api_key')[:10]}..." if config.get('api_key') else "未设置"
+            print(f"    API Key: {api_key_display}")
+            print(f"    超时时间: {config.get('timeout', 30)}秒")
+
+        print(f"\n当前激活的配置: {self.config.get('active_ai_service', '无')}")
+        print(f"自动错误分析: {self.config['features']['auto_error_analysis']}")
     
     def show_context_info(self):
         """显示详细的上下文信息"""
@@ -828,7 +891,7 @@ class LinuxAICompanion:
                 print(f"   磁盘使用: {disk.get('percent', 0):.1f}% ({disk.get('free_gb', 0):.1f}GB可用)")
         
     def install_shell_hook(self):
-        """安装Shell钩子函数 - 统一完整版（包含所有高级功能）"""
+        """安装Shell钩子函数"""
         # 创建安装目录
         install_dir = Path.home() / '.ai_companion'
         install_dir.mkdir(exist_ok=True)
@@ -905,9 +968,32 @@ export -f ai_exec ai_analyze_error ai_cleanup
         
         capture_script.chmod(0o755)
         
-        # 创建统一完整版shell钩子，包含所有高级功能
+        # 创建shell钩子
+        hook_script = install_dir / 'shell_hook.sh'
+        with open(hook_script, 'w') as f:
+            f.write(f"""#!/bin/bash
+
+# AI Companion Hook
+export AI_COMPANION_SCRIPT="{target_file}"
+
+# 主命令别名
+alias ai="python3 $AI_COMPANION_SCRIPT"
+alias ask="python3 $AI_COMPANION_SCRIPT ask"
+alias ai_context="python3 $AI_COMPANION_SCRIPT context"
+alias ai_config="python3 $AI_COMPANION_SCRIPT config"
+alias ai_test_api="python3 $AI_COMPANION_SCRIPT test_api"
+alias ai_set_api="python3 $AI_COMPANION_SCRIPT set_api"
+alias ai_switch_model="python3 $AI_COMPANION_SCRIPT switch_model"
+alias ai_switch_api="python3 $AI_COMPANION_SCRIPT switch_model" # an alias for switch_model
+
+# ... (其他钩子函数)
+""")
+        
+        hook_script.chmod(0o755)
+        
+        # 创建shell钩子
         shell_hook = f'''
-# Linux AI Companion Hook - 统一完整版
+# Linux AI Companion Hook
 # 包含所有高级功能：智能错误分析、实时stderr捕获、命令包装、上下文感知
 
 # 加载错误捕获脚本
@@ -1063,7 +1149,7 @@ if [[ "${{BASH_COMMAND_HOOKS:-}}" != *"ai_companion"* ]]; then
     fi
     
     export BASH_COMMAND_HOOKS="${{BASH_COMMAND_HOOKS}} ai_companion"
-    echo "🤖 Linux AI伴侣已启动 - 统一完整版"
+    echo "🤖 Linux AI伴侣已启动"
     echo "💡 包含功能:"
     echo "   ✅ 智能错误分析 - 自动捕获stderr并提供解决方案"
     echo "   ✅ 实时stderr捕获 - 精确获取命令错误输出"
@@ -1086,7 +1172,7 @@ fi
         # 检查是否已安装
         if bashrc_path.exists():
             content = bashrc_path.read_text()
-            if 'Linux AI Companion Hook - 开始' not in content and 'Linux AI Companion Hook - 统一完整版' not in content:
+            if 'Linux AI Companion Hook - 开始' not in content and 'Linux AI Companion Hook' not in content:
                 with open(bashrc_path, 'a') as f:
                     f.write('\n' + shell_hook)
                 print("✅ Shell钩子已安装到 ~/.bashrc")
@@ -1117,13 +1203,14 @@ def main():
     """主函数"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='Linux终端AI伴侣 - 统一完整版')
+    parser = argparse.ArgumentParser(description='Linux终端AI伴侣')
     parser.add_argument('--install', action='store_true', help='安装Shell钩子（包含所有高级功能）')
     parser.add_argument('--config', action='store_true', help='显示当前配置')
     parser.add_argument('--context', action='store_true', help='显示详细上下文信息')
     parser.add_argument('--test', action='store_true', help='测试API连接')
     parser.add_argument('--set-api', nargs=4, metavar=('TYPE', 'URL', 'MODEL', 'KEY'), 
                        help='设置API配置: TYPE URL MODEL KEY')
+    parser.add_argument('--switch-model', help='切换激活的API配置')
     parser.add_argument('--ask', nargs='+', help='直接提问')
     parser.add_argument('--monitor', nargs='+', metavar='ARG', 
                        help='监控命令执行结果（内部使用）: COMMAND EXIT_CODE [STDERR]')
@@ -1143,6 +1230,8 @@ def main():
     elif args.set_api:
         api_type, base_url, model, api_key = args.set_api
         companion.configure_api(api_type, base_url, model, api_key)
+    elif args.switch_model:
+        companion.switch_api_config(args.switch_model)
     elif args.monitor:
         command = args.monitor[0]
         exit_code = int(args.monitor[1])
@@ -1166,8 +1255,8 @@ def main():
         print(f"🤖 \033[1;36mAI伴侣回答\033[0m")
         print(response)
     else:
-        print("Linux终端AI伴侣 - 统一完整版（无外部依赖）")
-        print("使用 --install 安装Shell钩子（包含所有高级功能）")
+        print("Linux终端AI伴侣")
+        print("使用 --install 安装Shell钩子")
         print("使用 --config 查看当前配置")
         print("使用 --context 查看详细上下文")
         print("使用 --test 测试API连接")
