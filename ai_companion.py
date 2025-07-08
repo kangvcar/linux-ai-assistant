@@ -571,10 +571,6 @@ class LinuxAICompanion:
             return
             
         try:
-            # 显示等待提示
-            print(f"\n⏳ AI伴侣正在帮你分析错误，请稍候...")
-            sys.stdout.flush()
-            
             suggestion = self.get_ai_suggestion(cmd_info)
             if suggestion:
                 self.display_suggestion(suggestion, cmd_info['command'])
