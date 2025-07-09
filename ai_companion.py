@@ -27,13 +27,16 @@ class LinuxAICompanion:
     def load_config(self) -> Dict:
         """加载配置文件"""
         default_config = {
-            "ai_service": {
-                "type": "custom_api",
-                "base_url": "https://api.deepbricks.ai/v1/chat/completions",
-                "model": "gpt-4o-mini",
-                "api_key": "sk-97RxyS9R2dsqFTUxcUZOpZwhnbjQCSOaFboooKDeTv5nHJgg",
-                "timeout": 30
+            "ai_services": {
+                "default": {
+                    "type": "openai",
+                    "base_url": "https://api.deepbricks.ai/v1/chat/completions",
+                    "model": "gpt-4o-mini",
+                    "api_key": "sk-97RxyS9R2dsqFTUxcUZOpZwhnbjQCSOaFboooKDeTv5nHJgg",
+                    "timeout": 30
+                }
             },
+            "active_ai_service": "default",
             "features": {
                 "auto_error_analysis": True,
                 "command_suggestion": True,
@@ -60,7 +63,16 @@ class LinuxAICompanion:
     def get_active_api_config(self) -> Dict:
         """获取当前激活的API配置"""
         active_service_name = self.config.get('active_ai_service', 'default')
-        return self.config.get('ai_services', {}).get(active_service_name, {})
+        
+        # 新的配置结构
+        if 'ai_services' in self.config:
+            return self.config['ai_services'].get(active_service_name, {})
+        
+        # 兼容旧的配置结构
+        if 'ai_service' in self.config:
+            return self.config['ai_service']
+        
+        return {}
 
     def get_system_info_native(self) -> Dict:
         """使用原生方法获取系统信息"""
@@ -224,7 +236,12 @@ class LinuxAICompanion:
                 result = json.loads(response['content'])
                 return result['choices'][0]['message']['content'].strip()
             else:
-                return f"API调用失败: {response['status_code']}"
+                error_info = f"API调用失败: {response['status_code']}"
+                if 'error' in response:
+                    error_info += f" - {response['error']}"
+                if response.get('content'):
+                    error_info += f" - Response: {response['content'][:200]}"
+                return error_info
         except Exception as e:
             return f"API调用失败: {e}"
     
@@ -728,6 +745,9 @@ class LinuxAICompanion:
                 pattern_summary = f"\n最近主要操作: {', '.join([f'{name}({count}次)' for name, count in top_patterns])}"
         except Exception:
             pass
+
+        api_config = self.get_active_api_config()
+        model_name = api_config.get('model', '未知')
 
         prompt = f"""你是一个智能的Linux终端AI伴侣，用中文回答问题。
 当前模型: {model_name}
@@ -1254,6 +1274,8 @@ def main():
 
         print(f"🤖 \033[1;36mAI伴侣回答\033[0m")
         print(response)
+        print(f"💡 \033[2m输入 'ask \"更多问题\"' 可以继续咨询\033[0m")
+        
     else:
         print("Linux终端AI伴侣")
         print("使用 --install 安装Shell钩子")
